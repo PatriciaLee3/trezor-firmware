@@ -19,7 +19,9 @@
 
 bool get_features(Features *resp) {
   resp->has_fw_vendor = true;
-#if EMULATOR
+#ifdef ESP32S3
+  strlcpy(resp->fw_vendor, "EspTrezor", sizeof(resp->fw_vendor));
+#elif EMULATOR
   strlcpy(resp->fw_vendor, "EMULATOR", sizeof(resp->fw_vendor));
 #else
   const image_header *hdr =

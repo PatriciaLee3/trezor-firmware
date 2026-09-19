@@ -23,8 +23,13 @@
 #include "flash_area.h"
 
 #define NORCOW_SECTOR_COUNT 2
+#ifdef ESP32S3
+#define NORCOW_SECTOR_SIZE (28 * 1024)
+#define NORCOW_SECTORS {1, 8}
+#else
 #define NORCOW_SECTOR_SIZE (16 * 1024)
 #define NORCOW_SECTORS {2, 3}
+#endif
 
 /*
  * The length of the sector header in bytes. The header is preserved between

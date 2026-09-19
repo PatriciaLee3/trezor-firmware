@@ -1,0 +1,3 @@
+# Name,            Type, SubType, Offset,   Size,      Flags
+factory,           app,  factory, 0x10000,  0x400000,
+trezor_storage,    data, 0x40,    0xFF0000, 0x10000,

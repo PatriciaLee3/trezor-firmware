@@ -1,0 +1,4 @@
+#ifndef LIBOPENCM3_STM32_SPI_H
+#define LIBOPENCM3_STM32_SPI_H
+#define SPI1 0u
+#endif

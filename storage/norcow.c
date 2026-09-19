@@ -26,6 +26,10 @@
 #include "options.h"
 #include "storage_utils.h"
 
+#ifdef ESP32S3
+#include "esp32s3_norcow.h"
+#endif
+
 // NRC2 = 4e524332
 #define NORCOW_MAGIC ((uint32_t)0x3243524e)
 // NRCW = 4e524357
@@ -137,7 +141,13 @@ static secbool find_start_offset(uint8_t sector, uint32_t *offset,
     return secfalse;
   }
 
-  if (*magic == NORCOW_MAGIC) {
+  if (*magic == NORCOW_MAGIC
+#ifdef ESP32S3
+      // An upgrade writes into PREPARED, but reboot must never select it.
+      || (*magic == ESP32S3_NORCOW_PREPARED &&
+          sector == norcow_write_sector && sector != norcow_active_sector)
+#endif
+  ) {
     *offset = NORCOW_STORAGE_START;
     *version = ~(magic[1]);
   } else if (*magic == NORCOW_MAGIC_V0) {
@@ -213,7 +223,11 @@ static void compact(void) {
   }
 
   norcow_write_sector = (norcow_active_sector + 1) % NORCOW_SECTOR_COUNT;
+#ifdef ESP32S3
+  esp32s3_norcow_prepare(norcow_write_sector);
+#else
   erase_sector(norcow_write_sector, sectrue);
+#endif
   uint32_t offsetw = NORCOW_STORAGE_START;
 
   for (;;) {
@@ -239,7 +253,11 @@ static void compact(void) {
     offsetw = posw;
   }
 
+#ifdef ESP32S3
+  esp32s3_norcow_commit(norcow_active_sector, norcow_write_sector);
+#else
   erase_sector(norcow_active_sector, secfalse);
+#endif
   norcow_active_sector = norcow_write_sector;
   norcow_active_version = NORCOW_VERSION;
   norcow_free_offset = find_free_offset(norcow_write_sector);
@@ -249,6 +267,11 @@ static void compact(void) {
  * Initializes storage
  */
 void norcow_init(uint32_t *norcow_version) {
+#ifdef ESP32S3
+  esp32s3_norcow_recover();
+  norcow_write_sector = 0;
+  norcow_write_buffer_flashed = 0;
+#endif
   secbool found = secfalse;
   *norcow_version = 0;
   norcow_active_sector = 0;
@@ -270,7 +293,11 @@ void norcow_init(uint32_t *norcow_version) {
   } else if (*norcow_version < NORCOW_VERSION) {
     // Prepare write sector for storage upgrade.
     norcow_write_sector = (norcow_active_sector + 1) % NORCOW_SECTOR_COUNT;
+#ifdef ESP32S3
+    esp32s3_norcow_prepare(norcow_write_sector);
+#else
     erase_sector(norcow_write_sector, sectrue);
+#endif
     norcow_free_offset = find_free_offset(norcow_write_sector);
   } else {
     norcow_write_sector = norcow_active_sector;
@@ -282,6 +309,16 @@ void norcow_init(uint32_t *norcow_version) {
  * Wipe the storage
  */
 void norcow_wipe(void) {
+#ifdef ESP32S3
+  // The empty destination commits the wipe before any live data is erased.
+  // A pre-commit interruption retains the old wallet; post-commit recovery
+  // finishes erasure. No success is returned until cleanup has completed.
+  norcow_write_sector = (norcow_active_sector + 1) % NORCOW_SECTOR_COUNT;
+  esp32s3_norcow_prepare(norcow_write_sector);
+  esp32s3_norcow_commit(norcow_active_sector, norcow_write_sector);
+  norcow_active_sector = norcow_write_sector;
+  norcow_write_buffer_flashed = 0;
+#else
   // Erase the active sector first, because it contains sensitive data.
   erase_sector(norcow_active_sector, sectrue);
 
@@ -294,6 +331,7 @@ void norcow_wipe(void) {
     }
   }
 #endif
+#endif  // ESP32S3
   norcow_active_version = NORCOW_VERSION;
   norcow_write_sector = norcow_active_sector;
   norcow_free_offset = NORCOW_STORAGE_START;
@@ -398,6 +436,11 @@ secbool norcow_set_ex(uint16_t key, const void *val, uint16_t len,
   // Check whether there is enough free space and compact if full.
   if (norcow_free_offset + FLASH_ALIGN(NORCOW_MAX_PREFIX_LEN + len) >
       NORCOW_SECTOR_SIZE) {
+#ifdef ESP32S3
+    // Never compact over the only committed source during a version upgrade.
+    ensure(sectrue * (norcow_write_sector == norcow_active_sector),
+           "NORCOW upgrade exceeds destination capacity");
+#endif
     compact();
   }
 
@@ -450,7 +493,11 @@ secbool norcow_set_counter(uint16_t key, uint32_t count) {
  * Complete storage version upgrade
  */
 secbool norcow_upgrade_finish(void) {
+#ifdef ESP32S3
+  esp32s3_norcow_commit(norcow_active_sector, norcow_write_sector);
+#else
   erase_sector(norcow_active_sector, secfalse);
+#endif
   norcow_active_sector = norcow_write_sector;
   norcow_active_version = NORCOW_VERSION;
   return sectrue;

@@ -421,6 +421,11 @@ bool fsm_layoutCommitmentData(const uint8_t *msg, uint32_t len) {
 }
 
 void fsm_msgRebootToBootloader(void) {
+#ifdef ESP32S3
+  fsm_sendFailure(FailureType_Failure_ProcessError,
+                  _("Bootloader mode unavailable"));
+  return;
+#else
   layoutDialogSwipe(&bmp_icon_question, _("Cancel"), _("Confirm"), NULL,
                     _("Do you want to"), _("restart device in"),
                     _("bootloader mode?"), NULL, NULL, NULL);
@@ -438,6 +443,7 @@ void fsm_msgRebootToBootloader(void) {
   svc_reboot_to_bootloader();
 #else
   printf("Reboot!\n");
+#endif
 #endif
 }
 

@@ -63,12 +63,27 @@ void secp256k1_default_error_callback_fn(const char *str, void *data) {
 /* Screen timeout */
 uint32_t system_millis_lock_start = 0;
 
+#ifdef ESP32S3
+void esp32s3_get_hw_entropy(uint8_t entropy[HW_ENTROPY_LEN]);
+#endif
+
 /* Busyscreen timeout */
 static uint32_t system_millis_busy_start = 0;
 static uint32_t system_millis_busy_length = 0;
 
 void check_lock_screen(void) {
   buttonUpdate();
+
+#ifdef ESP32S3
+  static uint32_t no_button_down_since = 0;
+  if (button.NoDown) {
+    if (no_button_down_since == 0) {
+      no_button_down_since = timer_ms();
+    }
+  } else {
+    no_button_down_since = 0;
+  }
+#endif
 
   // wake from screensaver on any button
   if (layoutLast == layoutScreensaver && (button.NoUp || button.YesUp)) {
@@ -78,7 +93,12 @@ void check_lock_screen(void) {
 
   // button held for long enough (5 seconds)
   if ((layoutLast == layoutHomescreen || layoutLast == layoutBusyscreen) &&
+#ifdef ESP32S3
+      no_button_down_since != 0 &&
+      (timer_ms() - no_button_down_since) >= 5000) {
+#else
       button.NoDown >= 114000 * 5) {
+#endif
     layoutDialog(&bmp_icon_question, _("Cancel"), _("Lock Device"), NULL,
                  _("Do you really want to"), _("lock your Trezor?"), NULL, NULL,
                  NULL, NULL);
@@ -88,7 +108,11 @@ void check_lock_screen(void) {
     do {
       waitAndProcessUSBRequests(5);
       buttonUpdate();
+#ifdef ESP32S3
+    } while (button.NoDown);
+#else
     } while (!button.NoUp);
+#endif
 
     // wait for confirmation/cancellation of the dialog
     do {
@@ -136,7 +160,10 @@ void check_busy_screen(void) {
 }
 
 static void collect_hw_entropy(bool privileged) {
-#if EMULATOR
+#ifdef ESP32S3
+  (void)privileged;
+  esp32s3_get_hw_entropy(HW_ENTROPY_DATA);
+#elif EMULATOR
   (void)privileged;
   memzero(HW_ENTROPY_DATA, HW_ENTROPY_LEN);
 #else
@@ -175,7 +202,11 @@ int main(void) {
 
   drbg_init();
 
+#ifdef ESP32S3
+  if (true) {
+#else
   if (!is_mode_unprivileged()) {
+#endif
     collect_hw_entropy(true);
     timer_init();
 #ifdef APPVER
@@ -196,7 +227,7 @@ int main(void) {
 #endif
 #endif
 
-#if EMULATOR
+#if EMULATOR && !defined(ESP32S3)
   printf(
       "\x1b[1;31m"
       "*** TREZOR EMULATOR IS FOR DEVELOPMENT PURPOSES ONLY ***"
@@ -211,7 +242,9 @@ int main(void) {
   layoutHome();
   usbInit();
   for (;;) {
-#if EMULATOR
+#ifdef ESP32S3
+    usbPoll();
+#elif EMULATOR
     waitAndProcessUSBRequests(10);
 #else
     usbPoll();

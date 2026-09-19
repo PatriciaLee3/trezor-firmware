@@ -214,6 +214,11 @@ static secbool config_get_uint32(uint16_t key, uint32_t *value) {
 #define FLASH_META_LEN 0x100
 
 static secbool config_upgrade_v10(void) {
+#ifdef ESP32S3
+  // The STM32 v1-v10 layout addresses physical internal flash. They are not
+  // meaningful on this port and must never be interpreted as ESP flash data.
+  return secfalse;
+#else
 #define OLD_STORAGE_SIZE(last_member)                                        \
   (((offsetof(Storage, last_member) + pb_membersize(Storage, last_member)) + \
     3) &                                                                     \
@@ -379,6 +384,7 @@ static secbool config_upgrade_v10(void) {
   session_clear(true);
 
   return sectrue;
+#endif
 }
 
 void config_init(void) {
